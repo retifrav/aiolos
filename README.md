@@ -63,7 +63,7 @@ $ cmake --build --preset macos-arm64 --target run-tests
 
 ### Cleaning
 
-To delete output file or/and tests artifacts:
+To delete output files and tests artifacts:
 
 ``` sh
 $ cmake --build --preset macos-arm64 --target clean-outputs
