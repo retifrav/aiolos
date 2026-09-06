@@ -7,7 +7,9 @@ The `README.txt` file is the original README.
 <!-- MarkdownTOC -->
 
 - [Dependencies](#dependencies)
-- [Building](#building)
+- [Building and running](#building-and-running)
+    - [Tests](#tests)
+    - [Cleaning](#cleaning)
 
 <!-- /MarkdownTOC -->
 
@@ -27,7 +29,7 @@ On Linux (*assuming that you will be using gcc*):
 $ sudo apt install build-essential
 ```
 
-## Building
+## Building and running
 
 Use the appropriate CMake preset depending on your platform:
 
@@ -44,3 +46,25 @@ $ ./install/macos-arm64/bin/aiolos \
 ```
 
 At the moment, due to an unfortunate(?) design, the executable will only work if you launch it from the repository root.
+
+### Tests
+
+To run the tests:
+
+``` sh
+$ ctest --test-dir build/macos-arm64
+```
+
+or:
+
+``` sh
+$ cmake --build --preset macos-arm64 --target run-tests
+```
+
+### Cleaning
+
+To delete output file or/and tests artifacts:
+
+``` sh
+$ cmake --build --preset macos-arm64 --target clean-outputs
+```

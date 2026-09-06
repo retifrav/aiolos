@@ -1,17 +1,26 @@
-# Script mode helper for the clean-outputs target, so the glob runs when the
-# target is invoked rather than at configure time. Removes the snapshots the
-# test setups write into test_files/, which is what `make clean` did with
-# `rm -f test_files/*dat`.
+# script-mode helper for the clean-outputs target, so the globs run
+# when the target is invoked. Removes what the test setups
+# and the Python checkers leave in `./test_files/`: snapshots and plots
+#
+# the `./test_files/plots/` directory itself is not removed: `test_dustywave.py`
+# and `test_dustyshock.py` do `savefig` straight into it without a `makedirs()`,
+# so removing it makes those two checkers fail unless one of the checkers that does
+# create it runs first
 
 if(NOT DEFINED TEST_FILES_DIR)
     message(FATAL_ERROR "TEST_FILES_DIR must be set: cmake -DTEST_FILES_DIR=... -P CleanOutputs.cmake")
 endif()
 
-file(GLOB outputs "${TEST_FILES_DIR}/*.dat")
-if(outputs)
-    list(LENGTH outputs count)
-    file(REMOVE ${outputs})
-    message(STATUS "Removed ${count} .dat file(s) from ${TEST_FILES_DIR}")
-else()
-    message(STATUS "No .dat files in ${TEST_FILES_DIR}")
-endif()
+function(remove_matching what pattern)
+    file(GLOB victims "${pattern}")
+    if(victims)
+        list(LENGTH victims count)
+        file(REMOVE ${victims})
+        message(STATUS "Removed ${count} ${what} from ${TEST_FILES_DIR}")
+    else()
+        message(STATUS "No ${what} in ${TEST_FILES_DIR}")
+    endif()
+endfunction()
+
+remove_matching(".dat file(s)" "${TEST_FILES_DIR}/*.dat")
+remove_matching("plot(s)" "${TEST_FILES_DIR}/plots/*.png")

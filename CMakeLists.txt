@@ -9,7 +9,7 @@
 #     make SYSTEM=clang              -> cmake -S . -B build -DCMAKE_CXX_COMPILER=clang++
 #     make SYSTEM=intel              -> cmake -S . -B build -DCMAKE_CXX_COMPILER=icpx
 #     make tests                     -> cmake --build build --target run-tests
-#     make clean                     -> rm -rf build   (plus target clean-outputs for *.dat)
+#     make clean                     -> rm -rf build   (plus target clean-outputs for the test outputs)
 #
 # The compiler cannot be changed in an existing build tree; configure a fresh
 # one (or delete build/) when switching.
@@ -132,8 +132,10 @@ if(AIOLOS_NATIVE_ARCH)
     if(AIOLOS_HAVE_ARCH_FLAG)
         target_compile_options(aiolos_core PUBLIC "${AIOLOS_ARCH_FLAG}")
     else()
-        message(STATUS "AIOLOS: ${CMAKE_CXX_COMPILER_ID} rejects ${AIOLOS_ARCH_FLAG}, "
-                       "building without host-specific tuning")
+        message(STATUS
+            "AIOLOS: ${CMAKE_CXX_COMPILER_ID} rejects ${AIOLOS_ARCH_FLAG}, "
+            "building without host-specific tuning"
+        )
     endif()
 endif()
 
@@ -160,7 +162,7 @@ endif()
 
 include(GNUInstallDirs)
 
-set(TARGETS_TO_INSTALL "aiolos")
+install(TARGETS aiolos)
 
 #
 # tests
@@ -189,12 +191,16 @@ if(AIOLOS_BUILD_TESTS)
 
     # Produces the output_*.dat snapshots the Python checkers read. Its exit
     # code is the number of crashed setups.
-    add_test(NAME aiolos.setups
-             COMMAND aiolos_tests
-             WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
-    set_tests_properties(aiolos.setups PROPERTIES
-        FIXTURES_SETUP aiolos_outputs
-        TIMEOUT 3600)
+    add_test(
+        NAME aiolos.setups
+        COMMAND aiolos_tests
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
+    set_tests_properties(aiolos.setups
+        PROPERTIES
+            FIXTURES_SETUP aiolos_outputs
+            TIMEOUT 3600
+    )
 
     # Python checkers, in the order the makefile ran them. Each entry is
     # <script>[|<arg>...]; a | separator is used because a nested ;-list would
@@ -206,7 +212,8 @@ if(AIOLOS_BUILD_TESTS)
         "test_dustywave.py|-p"
         "test_dustyshock.py|-p"
         "test_conservation.py"
-        "test_irradiation.py|-p")
+        "test_irradiation.py|-p"
+    )
     # test_coll_heating.py takes no -p flag.
     list(APPEND AIOLOS_CHECKERS "test_coll_heating.py")
 
@@ -214,8 +221,10 @@ if(AIOLOS_BUILD_TESTS)
     message(STATUS "Python found: ${Python3_FOUND}")
     message(STATUS "Python path: ${Python3_EXECUTABLE}")
     if(NOT Python3_Interpreter_FOUND)
-        message(STATUS "AIOLOS: no python3 interpreter found, the numerical "
-                       "checkers are not registered (aiolos.setups still runs)")
+        message(STATUS
+            "AIOLOS: no python3 interpreter found, the numerical "
+            "checkers are not registered (aiolos.setups still runs)"
+        )
     endif()
 
     foreach(checker IN LISTS AIOLOS_CHECKERS)
@@ -227,16 +236,20 @@ if(AIOLOS_BUILD_TESTS)
         string(REGEX REPLACE "^test_(.*)\\.py$" "\\1" name "${script}")
 
         if(Python3_Interpreter_FOUND)
-            add_test(NAME check.${name}
-                     COMMAND "${Python3_EXECUTABLE}" "${script}" ${checker}
-                     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/test_files")
+            add_test(
+                NAME check.${name}
+                COMMAND "${Python3_EXECUTABLE}" "${script}" ${checker}
+                WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/test_files"
+            )
             # The checkers print "passed"/"failed" and always exit 0, so
             # without this a numerical regression would go unnoticed - as it
             # did under `make tests`.
-            set_tests_properties(check.${name} PROPERTIES
-                FIXTURES_REQUIRED aiolos_outputs
-                FAIL_REGULAR_EXPRESSION "failed"
-                TIMEOUT 600)
+            set_tests_properties(check.${name}
+                PROPERTIES
+                    FIXTURES_REQUIRED aiolos_outputs
+                    FAIL_REGULAR_EXPRESSION "failed"
+                    TIMEOUT 600
+            )
         endif()
     endforeach()
 
@@ -255,29 +268,27 @@ if(AIOLOS_BUILD_TESTS)
                 --output-on-failure ${AIOLOS_CTEST_CONFIG}
         COMMENT "Running the AIOLOS test setups and numerical checkers"
         USES_TERMINAL
-        VERBATIM)
+        VERBATIM
+    )
     add_dependencies(run-tests aiolos_tests)
-
-    list(APPEND TARGETS_TO_INSTALL "aiolos_tests")
 endif()
-
-install(TARGETS ${TARGETS_TO_INSTALL})
 
 #
 # Cleaning
 #
 # Object files and binaries all live in the build directory, so `rm -rf build`
-# covers what `make clean` removed there. The snapshots the test setups write
-# into test_files/ are outside the build tree and need their own target; the
-# glob has to happen when the target runs, hence the script-mode helper.
+# covers what `make clean` removed there. What the test setups and the checkers
+# write into test_files/ is outside the build tree and needs its own target; the
+# globs have to happen when the target runs, hence the script-mode helper.
 #
 
 add_custom_target(clean-outputs
     COMMAND "${CMAKE_COMMAND}"
             "-DTEST_FILES_DIR=${CMAKE_SOURCE_DIR}/test_files"
             -P "${CMAKE_SOURCE_DIR}/cmake/CleanOutputs.cmake"
-    COMMENT "Removing test_files/*.dat"
-    VERBATIM)
+    COMMENT "Removing test_files/*.dat and test_files/plots/*.png"
+    VERBATIM
+)
 
 #
 # Configuration summary
