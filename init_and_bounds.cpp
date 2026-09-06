@@ -860,8 +860,11 @@ c_Sim::c_Sim(string filename_solo, string speciesfile_solo, string workingdir, i
             
             ifstream file(fluxfile);
             string line;
-            if(!file) {
-                cout<<"Couldnt open flux spectrum file "<<filename<<"!!!!!!!!!!1111"<<endl;
+            if(!file)
+            {
+                // `fluxfile`, not `filename`, because the parameter file opened fine,
+                // it is the flux spectrum that did not
+                cout << "Couldnt open flux spectrum file " << fluxfile << endl;
             }
             
             while(std::getline( file, line )) {

@@ -45,10 +45,30 @@ int main(int argc, char** argv)
     int speciesfile_found   = 0;
     debug = 0;
     
+    // every recognised flag consumes the argument after it, which would be read past the end
+    // of `argv` if it is missing. Keep this list in sync with the flags handled in the loop below
+    auto needs_value = [](const string& flag)
+    {
+        return flag=="-par"
+            || flag=="-spc"
+            || flag=="-dir"
+            || flag=="-debug"
+            || flag=="-war"
+            || flag=="-dcell"
+            || flag=="-dsteps"
+            || flag=="-n";
+    };
+
     for(int i=0; i<argc; i++) {
         
         string tmpstring = argv[i];
         
+        if (needs_value(tmpstring) && i+1 >= argc)
+        {
+            cout << "Command line option " << tmpstring << " requires a value, but none was given" << endl;
+            return 2;
+        }
+
         if(tmpstring.compare("-par") == 0) {
             simulationname      = argv[i+1];
             parameterfile_found = 1;
@@ -63,6 +83,20 @@ int main(int argc, char** argv)
         }
         if(tmpstring.compare("-dir") == 0) {
             workingdir         = argv[i+1];
+            // `workingdir` is concatenated straight onto the in and output filenames, so a path
+            // without a trailing separator would yield e.g. "test_filesshock_tube1.par". Accept
+            // both spellings here. An empty string is left alone on purpose: turning it into "/"
+            // would point at the filesystem root instead of the current directory
+            if (
+                !workingdir.empty()
+                &&
+                workingdir.back() != '/'
+                &&
+                workingdir.back() != '\\'
+            )
+            {
+                workingdir += '/';
+            }
             cout<<"Attempting at assingning the following string to workingdir: "<<workingdir<<endl;
             i++;
         }
@@ -133,16 +167,20 @@ int main(int argc, char** argv)
             case 2: cout<<"np_zeros allocation failed!"<<endl; break ;
             default:cout<<"Unknown integer error occured!"<<endl; break ;
         } 
+        return 3;
     }
     catch (std::bad_alloc& ba)
     {
         std::cerr << "bad_alloc caught in main simulation block: " << ba.what() <<endl;
+        return 4;
     }
     catch(std::exception &e) {
         cout << e.what() << endl;
+        return 5;
     }
     catch(...) {
         cout<<"Unknown error in initialization of main variables!"<<endl;
+        return 6;
     }
     
     //Running class desctructors manually apparently not needed in modern C++ anymore

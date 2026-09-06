@@ -1,0 +1,125 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+AIOLOS is a 1-D multi-species radiation-hydrodynamics code in C++17 (planetary atmospheres, escape/wind problems), documented in Schulik & Booth 2023 ("SB23"). `cheat sheet.ods` documents the output columns.
+
+**`README.txt` is a frozen historical artifact — never edit it.** It is the user-facing manual as of SB23 and remains the most complete list of `.par` keywords and module options, so read it before inventing a new parameter; but where it and this file disagree, **this file wins**. Known divergences, both deliberate: `README.txt` §1 describes `make` and not the CMake presets, so its `./aiolos …` invocations predate `./build/<preset>/aiolos`; and §2.1 says `execution_log.txt` lands "in the folder of the executable", which holds only for the in-source makefile build — the log actually goes to the *current* directory, which for a CMake build is the repository root while the binary sits two levels down. What it says about flags, keywords and reading `inputdata/` relative to the working directory is accurate, because the local changes are confined to the build system plus two small patches to `main.cpp` and `init_and_bounds.cpp` (see **Run**). Document new keywords and flags here instead.
+
+## Build
+
+CMake **presets** are the primary build system and dependencies come from **vcpkg**; the `makefile` is kept and still works (see the end of this section).
+
+```
+cmake --preset linux-arm64          # arm64 host; linux-x64 on an x86_64 one
+cmake --build --preset linux-arm64
+```
+
+- **Always use a preset** — the bare `cmake -S . -B build` of earlier revisions no longer configures, because the vcpkg toolchain file, the triplet and the generator all come from `CMakePresets.json`. Pick the preset matching the host: `linux-arm64`, `linux-x64`, `macos-arm64`, `windows-msvc143`. All four inherit `vcpkg-default-triplet` → `default`, which sets the Ninja generator and `CMAKE_BUILD_TYPE=Release`; `default` and `vcpkg-default-triplet` are inheritance bases and not meant to be configured directly (`default` has no toolchain, so `find_package` fails unless Eigen and GSL happen to sit in system paths). Determine the host with `uname -m` rather than guessing — `aarch64`/`arm64` means the `*-arm64` preset, `x86_64` the `*-x64` one; configuring the wrong triplet cross-compiles and fails.
+- Out-of-source only — `CMakeLists.txt` aborts with a `FATAL_ERROR` if the binary dir equals the source dir. Each preset gets **its own tree**: `binaryDir` is `${sourceDir}/build/${presetName}` and `installDir` is `${sourceDir}/install/${presetName}`, so the binaries are `build/<preset>/aiolos` and `build/<preset>/tests`, with objects under `build/<preset>/CMakeFiles/`. The build presets carry `"targets": "install"`, so `cmake --build --preset <name>` also installs — `install/<preset>/bin/aiolos`. A failed in-source attempt still leaves a `CMakeCache.txt`/`CMakeFiles/` behind (both gitignored); delete them before retrying. A build tree also caches the absolute toolchain path it was configured with, so if `VCPKG_ROOT` moves, `rm -rf build/<preset>` and reconfigure instead of trying to reuse it.
+- Targets: `aiolos_core` (a static library holding every root `.cpp` except `main.cpp`, plus the selected problem file — this is how the two `main()`s are kept apart), `aiolos`, `aiolos_tests` (binary named `tests`), plus the custom targets `run-tests` and `clean-outputs`. Sources are still globbed (`file(GLOB ... CONFIGURE_DEPENDS "*.cpp")`), so a new root-level `.cpp` is picked up automatically without re-configuring.
+- Extra cache variables go **after** the preset name and override what the preset sets: `cmake --preset linux-arm64 -DPROBLEM=my_problem -DNUM_SPECIES=4`.
+- `-DPROBLEM=my_problem` compiles `problems/my_problem.cpp` instead of `problems/default.cpp`; an unknown value fails at configure time and lists the available setups.
+- `-DNUM_SPECIES=4` fixes the species count at compile time (`-DNUM_SPECIES`, makes the Eigen per-cell matrices fixed-size, 10–20% faster). Default is `Eigen::Dynamic`. Unused-variable warnings in this mode are expected.
+- Other options: `AIOLOS_NATIVE_ARCH` (default ON — `-march=native`, or `-xHost` for the Intel compilers, and only if the compiler accepts it), `AIOLOS_LTO` (default OFF, replaces the makefile's `-flto`/`-ipo` via `INTERPROCEDURAL_OPTIMIZATION`), `AIOLOS_BUILD_TESTS`, `AIOLOS_TEST_PLOTS`.
+- `SYSTEM=intel` / `SYSTEM=clang` has no CMake variable equivalent — pass `-DCMAKE_CXX_COMPILER=icpx|clang++` at *first* configure, or configure a fresh build tree; the compiler cannot be changed in an existing one.
+- Build type defaults to `Release` (`-O3 -DNDEBUG`), matching the makefile, and every preset inherits that. There is **no `debug` preset** — get a debug build with `cmake --preset <name> -DCMAKE_BUILD_TYPE=Debug` into a fresh tree. A `Debug` build drops `NDEBUG` and so enables Eigen's assertions, including the `EIGEN_RUNTIME_NO_MALLOC` checks in `radiation.cpp` / `radiation_simple.cpp` / `chemistry.cpp` — an allocation in one of those inner loops then aborts instead of passing silently.
+- Dependencies come from **vcpkg in manifest mode**: `vcpkg.json` asks for `eigen` and `gsl`, and the toolchain installs them into `build/<preset>/vcpkg_installed/<triplet>/` during configure, after which the ordinary `find_package(... REQUIRED)` for Eigen 3.3+ (`Eigen3::Eigen`), GSL (`GSL::gsl`) and OpenMP picks them up. No system Eigen or GSL is needed, and the makefile's hardcoded `-I/usr/include/eigen3` is gone from the CMake path. GSL is only needed for the `gsl/gsl_sf_lambert.h` include in `aiolos.h` — every call site (`helpers.cpp`, analytic wind solution) is commented out, so it is a compile-time requirement, not a link-time one.
+- What vcpkg itself needs before any of that works: **`VCPKG_ROOT`** exported (the presets expand `$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake`, and an unset variable produces the giveaway error `Could not find toolchain file: /scripts/buildsystems/vcpkg.cmake`), **`ninja`** on `PATH` (the generator — the container image does not ship it, and the copy that is there came from `uv tool install ninja`, which survives image rebuilds only because `~/.local/bin` is inside the mounted home), and **`pkg-config`**, which the `gsl` port's `vcpkg_fixup_pkgconfig` step calls — without it gsl compiles for minutes and only then fails. Ports are resolved from a private default-registry (`retifrav/vcpkg-registry`, baseline pinned in `vcpkg-configuration.json`), not from upstream vcpkg, so a port missing from that registry cannot be installed no matter what upstream has.
+- One preset setting is **machine-specific**: `vcpkg-configuration.json` names the registry over **SSH** (`git@github.com:…`), which needs a key. In the container use the per-invocation, org-scoped `url.insteadOf` rewrite from the global `CLAUDE.md` so vcpkg's child `git` processes fetch it anonymously over https:
+  ```
+  GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0='url.https://github.com/retifrav/.insteadOf' \
+    GIT_CONFIG_VALUE_0='git@github.com:retifrav/' \
+    cmake --preset linux-arm64
+  ```
+  There is deliberately **no `VCPKG_OVERLAY_PORTS`** any more. It used to point at a directory on the author's Mac, which made every other machine fail at configure time with `Overlay path "…" must be an existing directory.`; both `eigen` and `gsl` are in the registry now, so no overlay is needed on any platform. Don't reintroduce one.
+- When the toolchain step fails for any of the reasons above, CMake carries on and adds `CMake was unable to find a build program corresponding to "Ninja"` and `CMAKE_CXX_COMPILER not set, after EnableLanguage`. Those two are **cascade artifacts** of `project()` aborting inside the toolchain file, not independent problems — fix the vcpkg error above them and they disappear; chasing a missing Ninja that is in fact on `PATH` is a dead end.
+- Cleaning: `rm -rf build/<preset>` (or `cmake --build build/<preset> --target clean`) covers all objects and binaries; `cmake --build build/<preset> --target clean-outputs` deletes `test_files/*.dat`, the one thing the makefile's `clean` did outside the build tree.
+- **No manual clean needed after changing `NUM_SPECIES` or a header** — every object depends on `flags.make` (so a changed `-D` recompiles everything) and on a `-MD` depfile (so `enum.h`, `eos.h`, `brent.h`, `block_tridiag_solve.h` edits rebuild).
+- The makefile path is unchanged and still builds **in-source**: `make` → `./aiolos`, `make PROBLEM=… NUM_SPECIES=… SYSTEM=…`, `make tests`, `make clean`. It does **not** use vcpkg: `CPPFLAGS` still hardcodes `-I/usr/include/eigen3`, so on a machine whose Eigen and GSL come from vcpkg it needs the include path passed by hand, i.e. `make CPPFLAGS="-I. -I$PWD/build/<preset>/vcpkg_installed/<triplet>/include -DNDEBUG"` (verified to build). Its old caveat still applies there: **run `make clean` after changing `NUM_SPECIES` or `SYSTEM`**, because the `%.o` rule depends only on the `.cpp`, `makefile` and `aiolos.h`, so stale objects built with a different `-DNUM_SPECIES` link silently. Don't mix the two — the makefile's `./aiolos` and CMake's `./build/<preset>/aiolos` are separate binaries, and both read `inputdata/` from the current directory, so both want to be started from the repository root.
+
+## Run
+
+**Run from the repository root.** The opacity and stellar-flux tables are opened as the literal relative path `inputdata/…`, so the current working directory has to be the repository root no matter where the binary itself lives:
+
+```
+cd <repo root>
+./build/linux-arm64/aiolos -dir test_files/ -par planet_spherical.par -spc mix3.spc
+```
+
+- **The CWD requirement is not diagnosed.** `io.cpp` opens the opacity file without checking that it opened, so starting the binary from anywhere else does not produce an error message — it prints `Reading file = inputdata/<name>` and then **segfaults** a moment later. That is upstream behaviour, reproduced exactly; if a run dies early with no explanation, check the working directory first. A `-data <path>` flag that made this explicit was tried and deliberately reverted, because threading a data directory through `c_Sim` touched six upstream files and made rebasing onto new upstream commits expensive. Don't reintroduce it, nor an `INPUTDATA_DIR` parameter-file key, without weighing that cost again.
+- `-dir` is prefixed to the input filenames *and* to the outputs, and it defaults to `./`. Unlike the tables, it accepts an absolute path. **The trailing slash is now optional** — `main.cpp` appends one at the parse site if the value ends in neither `/` nor `\`, so `-dir test_files` and `-dir test_files/` are equivalent. This is a local addition; upstream concatenates the raw string, where `-dir test_files` silently yields `test_filesshock_tube1.par` for the inputs and writes the snapshots as `test_filesoutput_*.dat` into the CWD instead of into a directory. An empty `-dir ""` is deliberately left as-is rather than normalized to `/`, so it still means the current directory. Everything downstream (`c_Sim`, `io.cpp`, `chemistry.cpp`) still treats `workingdir` as a plain string prefix with no path handling, so don't rely on any other normalization; the undocumented ability to use `-dir` as a *filename* prefix (`-dir out/run1_`) is what this trades away.
+- `-spc` is optional when the `.par` sets `SPECIES_FILE`. `-debug 0..4` (0 = start/end only, 2 = per timestep, 4 = per function per timestep; levels documented at the top of `main.cpp`). `-war 1` suppresses warnings, `-n <int>` sets OpenMP threads, `-dcell` / `-dsteps` narrow debug output to one cell/step. Flags are matched exactly.
+- Exit codes: 0 on success (including a soft crash, which still writes `t-1`), 2 for a flag given without its value, and 3–6 for the four exception branches in `main.cpp` — a missing `.par` surfaces as 5. Both the codes and the missing-value check are local additions, as is the `-dir` trailing-slash normalization above — those three are the only local changes in `main.cpp`: upstream returns 0 unconditionally, reads `argv[i+1]` unguarded, and takes `-dir` verbatim.
+- Outputs, into `-dir`: `output_<par-stem>_<speciesname>_t<N>.dat` (one per species, fixed column count) and `diagnostic_<par-stem>_t<N>.dat` (radiation/opacity/optical-depth detail, column count depends on species and band counts). `t0` is the initial state, `t-1` the final snapshot (also written on a soft crash). `OUTPUT_FILENAME` in the shipped `.par` files is dead — names come from the `.par` filename. Every run appends to `execution_log.txt` in the **current directory**, i.e. the repository root, not the `-dir` run directory.
+
+## Tests
+
+`test_files/main.cpp` is linked in place of `main.cpp` (a fixed list of ~25 `.par` setups) into a `tests` binary, which is run first and produces the snapshots that eight python checkers then read inside `test_files/`. It takes **no command line arguments at all** — `int main()` with both `test_files/` and `inputdata/` hardcoded as CWD-relative paths — so like `aiolos` it has to be started from the repository root.
+
+```
+cmake --build build/linux-arm64 --target run-tests      # build the driver, run everything
+ctest --test-dir build/linux-arm64 --output-on-failure  # same, without rebuilding
+ctest --test-dir build/linux-arm64 -R shock_tube        # one checker (needs the snapshots to exist)
+```
+
+- Nine CTest tests: `aiolos.setups` (the `tests` binary, `FIXTURES_SETUP aiolos_outputs`) and `check.<name>` for each checker (`FIXTURES_REQUIRED aiolos_outputs`), so CTest runs the simulations before any checker even when one checker is selected with `-R`. **Both kinds carry a load-bearing `WORKING_DIRECTORY`** and neither takes path arguments: `aiolos.setups` runs in `${CMAKE_SOURCE_DIR}` because the driver resolves `test_files/` and `inputdata/` against the CWD, and the checkers run in `${CMAKE_SOURCE_DIR}/test_files` because they `import load_aiolos` and read `output_*.dat` from the CWD. This is why `ctest` works from any directory even though the binaries do not — CTest supplies the CWD they need.
+- The `tests` binary's exit code is the number of *crashed* setups. The python checkers only print `passed` / `failed` and always exit 0, so each `check.*` test carries `FAIL_REGULAR_EXPRESSION "failed"` — under CTest a numerical regression does fail, unlike under `make tests`, where the output had to be read by eye.
+- `-p` (where supported) writes plots to `test_files/plots/` and needs `matplotlib`; configure with `-DAIOLOS_TEST_PLOTS=OFF` to drop the flag.
+- Single test by hand: from the repository root, run the setup directly, e.g. `./build/linux-arm64/aiolos -dir test_files/ -par shock_tube1.par -spc hydrogen.spc`, then `cd test_files && python3 test_shock_tube.py`.
+- `make tests` still works from the makefile and is unchanged from upstream: it builds `./tests` in-source, runs a bare `./tests`, then the eight checkers in sequence, never failing on a numerical regression.
+- Python deps: `numpy`, plus `matplotlib` for the `-p` plots.
+
+## Architecture
+
+Everything is declared in the single header `aiolos.h` (which pulls in `enum.h`, `eos.h` and `block_tridiag_solve.h`) and hangs off two classes:
+
+- **`c_Sim`** — the whole simulation: grid, wavelength bands, radiation field, and every module that couples species (friction/drag, collisional heat exchange, radiation transport, chemistry). Constructed in `init_and_bounds.cpp:26`, which reads ~154 `.par` parameters with inline comments explaining each — that constructor plus `c_Species` at `init_and_bounds.cpp:1076` is the real parameter reference.
+- **`c_Species`** — per-species state, opacities, EOS, boundary conditions. Held in `c_Sim::species`; each has a `base` back-pointer to its `c_Sim`.
+
+Command line parsing lives inline in `main.cpp`'s `for(int i=0; i<argc; i++)` loop, and the test driver in `test_files/main.cpp` parses nothing at all — the two share no code, so a new flag has to be added to `main.cpp` by hand. Input paths are built by plain string concatenation (`workingdir + filename_solo`, `"inputdata/" + opacity_data_string`), with no path helpers and no `<filesystem>` anywhere in the project.
+
+State layout: `AOS{u1,u2,u3}` = (density, momentum, total energy density) per cell, with `std::vector<AOS> u` sized `num_cells+2`; `AOS_prim` carries the primitives. `num_ghosts` is 1 for first-order and 2 for second-order integration, and `num_cells` is inflated by `2*(num_ghosts-1)` in the constructor so that the arrays hold `num_ghosts` ghosts at each end (`init_and_bounds.cpp:293`); the physical cell count is what the boundary routines call `Ncell = num_cells - 2*(num_ghosts-1)`.
+
+One timestep (`c_Sim::execute`, `advection.cpp:18`), in order:
+
+1. CFL timestep (`helpers.cpp` `get_cfl_timestep`, sound speed + velocity + an internal-energy-change criterion), capped by the radiative timestep and `MAX_TIMESTEP_CHANGE`.
+2. Output / monitor / diagnostic writes (deliberately between flux and conserved-variable update, so `t0` holds initial state with first fluxes).
+3. Gravity: `update_mass_and_pot()` then per-species `update_kzz_and_gravpot()` (`source.cpp`).
+4. Hydro, if `DO_HYDRO`: `c_Species::execute` per species → boundaries → `compute_pressure` → `reconstruct_edge_states` (`reconstruct.cpp`) → `hllc_flux`, or `dust_flux` for `is_dust_like` species → well-balanced gravity + geometric pressure source → `dudt`. Second-order runs this twice (RK2), with an optional drag predictor step in between.
+5. Drag / collisional heat exchange (`source.cpp`, `FRICTION_SOLVER`: 1 = analytic implicit, 2 = numeric implicit).
+6. If radiation or photochemistry is on: `update_opacities()` (`opacities.cpp`) → photochemistry (`photochem.cpp`, C2Ray scheme, `PHOTOCHEM_LEVEL 1`) or general thermo/photochemistry (`chemistry.cpp`, level 2) → `update_dS()` low-energy heating (`radiation.cpp`) → FLD transport: `update_fluxes_FLD()` (`radiation.cpp`, coupled J_b and T_s) for `PARI_USE_RADIATION 1`, or `update_fluxes_FLD_simple()` (`radiation_simple.cpp`, one outgoing band, J and T decoupled) for 2.
+7. Soft-crash detection: a negative/NaN temperature or negative J sets `globalTime = 1.1*t_max` so the loop exits cleanly and still writes the `t-1` crash dump.
+
+Cross-cutting numerics: the species-coupling steps build dense `num_species × num_species` Eigen systems per cell (`Matrix_t`/`Vector_t` are `NUM_SPECIES`-sized) and solve them with `PartialPivLU` — this is why `NUM_SPECIES` at compile time pays off. The FLD solve over cells × bands uses `BlockTriDiagSolver` from `block_tridiag_solve.h`. Radiation files `#define EIGEN_RUNTIME_NO_MALLOC`, so keep allocations out of those inner loops.
+
+Bands are split into "in" (instellation, `PARI_NUM_BANDS`) and "out" (thermal, `NUM_BANDS_OUT`) wavelength grids; `num_bands_out` dominates the cost of the radiation solve. The opacity model is a single char (`PARI_OPACITY_MODEL`, letter table in `README.txt` §3.3) that decides both which routine in `opacities.cpp` runs and which of the `*.opa` / `*.op2` / `*.op3` / `*.aiopa` files in `inputdata/` are read.
+
+## Adding a problem setup
+
+A `problems/<name>.cpp` must define all five `c_Species` user hooks — `user_boundary_left`, `user_boundary_right`, `user_initial_conditions`, `user_opacity`, `user_species_loop_function`. `problems/default.cpp` throws from each; `problems/dusty_wind.cpp` is a worked example. Build with `cmake --preset <host-preset> -DPROBLEM=<name> && cmake --build --preset <host-preset>` (or `make PROBLEM=<name>`) and set `PARI_BOUND_TYPE_LEFT/RIGHT 0` (`BoundaryType::user`) to reach the boundary hooks.
+
+## Parameter and species file gotchas
+
+`read_parameter_from_file` (`io.cpp:596`) scans the whole file with a plain `line.find(name)` substring test and takes the second whitespace-separated token as the value. Consequences:
+
+- A commented-out line still counts as a definition (`#PARI_USE_RADIATION 1` matches). Two matches is a hard error ("defined more than once"), so delete stale lines rather than commenting them out when a live definition exists.
+- A key that is a substring of another key collides — the `PARI_TPLANET` lookup for `T_int` will happily match a `PARI_TPLANET_INIT` line. Do not name a new key as a prefix of an existing one.
+- Tabs are not separators (`stringsplit` splits on `" "` only) — use spaces, as `README.txt` warns.
+- A missing key silently takes the default when the call passes one, and throws when it does not.
+
+There are no `.par` keys beyond the ones `README.txt` lists. An `INPUTDATA_DIR <path>` key was added and then removed again along with `-data` (see **Run**), so don't add it back to a `.par` file expecting it to be read. The string-valued keys are `SPECIES_FILE`, `FLUX_FILE` and `REACTION_FILE`. `FLUX_FILE` is opened exactly as written, so its path resolves against the working directory and has to be spelled out in full — no shipped `.par` sets it, so there is no worked example to copy; `SPECIES_FILE` is the exception, being prefixed with `-dir` like the `.par` itself.
+
+`.spc` rows start with `@` and are: number, name, mass[amu], dof, static charge, relative amount, initial density excess, `is_dust_like`, opacity file, [optional second opacity file for `PARI_OPACITY_MODEL K`]. Anything not starting with `@` is ignored. Several shipped `.spc` header comments mislabel column 5 as an adiabatic index; the code reads it as charge, and `gamma_adiabat` is derived from the dof.
+
+`.par`, `.spc`, `.opa`, `.op2`, `.op3`, `.aiopa`, `.dat` and `.log` are all in `.gitignore` while the shipped ones are tracked — a new input file needs `git add -f`.
+
+## Conventions
+
+cgs units throughout, with physical constants at the top of `aiolos.h`; `using namespace std` is in effect via that header. Most functions carry Doxygen `/** */` blocks with `@param`/`@return` — keep them. Debug output is `if(debug >= n) cout<<...`, and large commented-out debug/diagnostic blocks are intentionally left in place (e.g. in `c_Species::execute`) as templates for the next investigation.
+
+## Other directories
+
+`runs_*/`, `test2/`, `c2ray/`, `friction_debug/`, `PBC_model/` are archived parameter sets from past papers and projects, not tests; the `<setup>_<N>s<M>b.par` naming means N species and M bands. `inputdata/` holds the opacity and stellar flux tables. `presentation/` is slides. `test_files/load_aiolos.py` (and a slightly older copy in `PBC_model/`) is the python reader for snapshots, `.par` files and diagnostic files. `l1norm.bs` is an awk L1-norm comparison of a `t0` and `t-666` snapshot pair. `cmake/` holds only `CleanOutputs.cmake`, a script-mode helper behind the `clean-outputs` target (the glob has to run when the target runs, not at configure time). `build/<preset>/` are the CMake binary directories and `install/<preset>/` the install prefixes, one pair per configure preset; both trees are gitignored, as is the `vcpkg_installed/` that vcpkg writes inside each build tree.
+
+`README.txt` recommends the `version0.2` tag/branch for reproducing SB23, but this clone only has tag `v0.1` and `origin/version0.1`; `main` is active development (`advection.cpp` prints "VERSION 0.2").
