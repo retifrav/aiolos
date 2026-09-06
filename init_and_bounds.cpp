@@ -1850,22 +1850,27 @@ void c_Species::apply_boundary_left(std::vector<AOS>& u) {
                 else {
                     dens_wall = BACKGROUND_U.u1 *  mass_amu;
                 }*/
-                double dens_wall;
-                AOS_prim prim;
                 if(base->problem_number == 1)
-                    dens_wall = SHOCK_TUBE_UL.u1;
-                else {
+                {
+                    // constant left state, the mirror image of SHOCK_TUBE_UR
+                    // in apply_boundary_right. SHOCK_TUBE_UL is already the conserved left state
+                    // built by the same eos at init, so no round-trip through the primitives is needed here
+                    u[i] = SHOCK_TUBE_UL;
+                }
+                else
+                {
+                    AOS_prim prim;
                     prim.density = BACKGROUND_U.u1;
                     if(this->prim[2].speed > 0)
                         prim.speed   = this->prim[2].speed;
                     else
                         prim.speed   = 0.;
                     prim.temperature = const_T_space;
+
+                    eos->update_eint_from_T(&(prim), 1);
+                    eos->update_p_from_eint(&(prim), 1);
+                    eos->compute_conserved(&(prim), &(u[i]), 1) ; //Ghost cell u is fixed after init, only need to update p in prim
                 }
-                
-                eos->update_eint_from_T(&(prim), 1);
-                eos->update_p_from_eint(&(prim), 1);
-                eos->compute_conserved(&(prim), &(u[i]), 1) ; //Ghost cell u is fixed after init, only need to update p in prim
             }
             
             break;
