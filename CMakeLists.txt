@@ -55,7 +55,7 @@ find_package(Eigen3 CONFIG REQUIRED)
 # GSL, for <gsl/gsl_sf_lambert.h> included unconditionally by aiolos.h. Every call site
 # (the analytic wind solution in helpers.cpp) is currently commented out, so in practice
 # only the headers are needed - but the include makes GSL a hard compile-time requirement
-find_package(GSL REQUIRED)
+find_package(gsl CONFIG REQUIRED)
 
 # aiolos.h provides inline fallbacks when _OPENMP is undefined, but the
 # makefile's default build always enabled it, so it is required here as well
@@ -102,8 +102,8 @@ target_compile_features(aiolos_core PUBLIC "cxx_std_${REQUIRED_CPP_STANDARD}")
 
 target_link_libraries(aiolos_core PUBLIC
     Eigen3::Eigen
-    GSL::gsl
-    GSL::gslcblas
+    gsl::gsl
+    gsl::gslcblas
     OpenMP::OpenMP_CXX
 )
 if(UNIX)
