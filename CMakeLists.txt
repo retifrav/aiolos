@@ -37,12 +37,12 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS YES)
 set(PROBLEM
     "default"
     CACHE STRING
-    "Problem setup to compile: problems/<PROBLEM>.cpp"
+    "Problem setup to compile (problems/<PROBLEM>.cpp)"
 )
 set(NUM_SPECIES
     "Eigen::Dynamic"
     CACHE STRING
-    "Species count fixed at compile time; Eigen::Dynamic for a flexible build"
+    "Species count fixed at compile time (Eigen::Dynamic for a flexible build)"
 )
 
 option(AIOLOS_NATIVE_ARCH "Optimise for the build host (-march=native / -xHost)"               1)
@@ -95,8 +95,7 @@ endif()
 
 add_library(aiolos_core OBJECT ${AIOLOS_CORE_SOURCES} "${AIOLOS_PROBLEM_SOURCE}")
 
-# PUBLIC throughout: both executables include aiolos.h and so need
-# the same include paths, definitions and libraries
+# both executables include aiolos.h and so they need the same includes, definitions and libraries
 target_include_directories(aiolos_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_definitions(aiolos_core PUBLIC NUM_SPECIES=${NUM_SPECIES})
 target_compile_features(aiolos_core PUBLIC "cxx_std_${REQUIRED_CPP_STANDARD}")

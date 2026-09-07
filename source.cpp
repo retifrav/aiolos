@@ -193,8 +193,11 @@ void c_Species::update_kzz_and_gravpot(int argument) {
                 K_zzf[i] = mu/mi;
             
             double one = 0.99999;
-            if(K_zzf[i] > one && K_zzf[i-1] < one) //found homopause
+            // `i > 0` as there is no `K_zzf[-1]` to compare against
+            if (i > 0 && K_zzf[i] > one && K_zzf[i-1] < one) // found homopause
+            {
                 homopause_boundary_i = i;
+            }
         }
             
     }

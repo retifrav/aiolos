@@ -10,11 +10,9 @@ install/
 *.op2
 *.op3
 *.opa
-*.par
 *.png
 *.pyc
 *.reac
-*.spc
 
 .DS_Store
 CMakeUserPresets.json
