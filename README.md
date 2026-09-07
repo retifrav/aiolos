@@ -49,16 +49,16 @@ At the moment, due to an unfortunate(?) design, the executable will only work if
 
 ### Tests
 
-To run the tests:
+Having built the project, to run the tests:
 
 ``` sh
-$ ctest --test-dir build/macos-arm64
+$ ctest --preset macos-arm64
 ```
 
-or:
+The test presets pass `--output-on-failure`, which is what makes a failing Python checker show its numbers instead of just its name. Without using a preset, you would have specify this explicitly:
 
 ``` sh
-$ cmake --build --preset macos-arm64 --target run-tests
+$ ctest --test-dir ./build/macos-arm64 --output-on-failure
 ```
 
 ### Cleaning

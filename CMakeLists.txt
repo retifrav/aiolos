@@ -1,14 +1,12 @@
 # AIOLOS - 1-D multi-species radiation hydrodynamics
 #
-# Out-of-source build only. All artifacts land in the binary directory.
-#
-# Translation table from the old makefile:
+# Translation table from the original makefile:
 #
 #     make PROBLEM=my_problem        -> cmake -S . -B build -DPROBLEM=my_problem
 #     make NUM_SPECIES=4             -> cmake -S . -B build -DNUM_SPECIES=4
 #     make SYSTEM=clang              -> cmake -S . -B build -DCMAKE_CXX_COMPILER=clang++
 #     make SYSTEM=intel              -> cmake -S . -B build -DCMAKE_CXX_COMPILER=icpx
-#     make tests                     -> cmake --build build --target run-tests
+#     make tests                     -> ctest --preset <name>   (after a build)
 #     make clean                     -> rm -rf build   (plus target clean-outputs for the test outputs)
 #
 # The compiler cannot be changed in an existing build tree; configure a fresh
@@ -84,21 +82,21 @@ if(NOT EXISTS "${AIOLOS_PROBLEM_SOURCE}")
         "Available problem setups: ${available_problems}")
 endif()
 
-# Core objects: everything except the two competing main() definitions, shared
-# by the aiolos binary and the test driver (the makefile achieved this by
-# substituting main.o for test_files/main.o).
+# core objects: everything except the two competing `main()` definitions,
+# shared by the aiolos binary and the test driver (the makefile achieved this
+# by substituting `main.o` for `test_files/main.o`)
 #
-# OBJECT rather than STATIC or an unqualified add_library(): nothing consumes
-# this as a library - there are no install/export rules - it exists only so
-# these translation units are not compiled once per executable. That also keeps
-# BUILD_SHARED_LIBS from turning it into a shared object, which this code is
-# not set up for (no visibility control, no SOVERSION, and a runtime dependency
-# that build-tree RPATH would hide until the binary is copied elsewhere).
+# OBJECT rather than STATIC or an unqualified `add_library()`: nothing consumes
+# this as a library - there are no install/export rules - it exists only
+# so these translation units are not compiled once per executable. That also keeps
+# `BUILD_SHARED_LIBS` from turning it into a shared object, which this code
+# is not set up for (no visibility control, no SOVERSION, and a runtime dependency
+# that build-tree RPATH would hide until the binary is copied elsewhere)
 
 add_library(aiolos_core OBJECT ${AIOLOS_CORE_SOURCES} "${AIOLOS_PROBLEM_SOURCE}")
 
-# PUBLIC throughout: both executables include aiolos.h and so need the same
-# include paths, definitions and libraries.
+# PUBLIC throughout: both executables include aiolos.h and so need
+# the same include paths, definitions and libraries
 target_include_directories(aiolos_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_definitions(aiolos_core PUBLIC NUM_SPECIES=${NUM_SPECIES})
 target_compile_features(aiolos_core PUBLIC "cxx_std_${REQUIRED_CPP_STANDARD}")
@@ -118,9 +116,9 @@ target_compile_options(aiolos_core
         $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang,Intel,IntelLLVM>:-Wall;-Wextra>
 )
 
-# Host-specific tuning: -xHost for the Intel compilers, -march=native
-# elsewhere, and only when the compiler actually accepts it (it is rejected by,
-# for example, Apple clang on Apple silicon).
+# host-specific tuning: `-xHost` for the Intel compilers, `-march=native` elsewhere,
+# and only when the compiler actually accepts it (it is rejected by, for example,
+# Apple clang on Apple silicon)
 if(AIOLOS_NATIVE_ARCH)
     include(CheckCXXCompilerFlag)
     if(CMAKE_CXX_COMPILER_ID MATCHES "^Intel")
@@ -139,7 +137,7 @@ if(AIOLOS_NATIVE_ARCH)
     endif()
 endif()
 
-# portable replacement for the makefile's -flto (clang) / -ipo (intel)
+# portable replacement for the makefile's `-flto` (Clang) / `-ipo` (Intel)
 if(AIOLOS_LTO)
     include(CheckIPOSupported)
     check_ipo_supported(RESULT AIOLOS_IPO_SUPPORTED OUTPUT AIOLOS_IPO_ERROR)
@@ -178,8 +176,7 @@ install(TARGETS aiolos)
 #
 
 if(AIOLOS_BUILD_TESTS)
-    # Target name kept distinct from the run-tests driver below; the binary is
-    # still ./build/tests, as with the makefile.
+    # CMake target is aiolos_tests, but the binary keeps the original name from makefile
     add_executable(aiolos_tests test_files/main.cpp)
     set_target_properties(aiolos_tests PROPERTIES OUTPUT_NAME tests)
     target_link_libraries(aiolos_tests PRIVATE aiolos_core)
@@ -252,34 +249,15 @@ if(AIOLOS_BUILD_TESTS)
             )
         endif()
     endforeach()
-
-    # One-command equivalent of `make tests`: build the driver, then run the
-    # simulations and every checker.
-    # Multi-config generators need ctest told which configuration to run;
-    # single-config ones reject -C, hence the plain if() rather than a
-    # generator expression over CMAKE_CONFIGURATION_TYPES (a multi-item list
-    # would not survive being interpolated into one).
-    set(AIOLOS_CTEST_CONFIG "")
-    if(CMAKE_CONFIGURATION_TYPES)
-        set(AIOLOS_CTEST_CONFIG -C $<CONFIG>)
-    endif()
-    add_custom_target(run-tests
-        COMMAND "${CMAKE_CTEST_COMMAND}" --test-dir "${CMAKE_BINARY_DIR}"
-                --output-on-failure ${AIOLOS_CTEST_CONFIG}
-        COMMENT "Running the AIOLOS test setups and numerical checkers"
-        USES_TERMINAL
-        VERBATIM
-    )
-    add_dependencies(run-tests aiolos_tests)
 endif()
 
 #
-# Cleaning
+# cleaning
 #
-# Object files and binaries all live in the build directory, so `rm -rf build`
+# object files and binaries all live in the build directory, so `rm -rf build`
 # covers what `make clean` removed there. What the test setups and the checkers
-# write into test_files/ is outside the build tree and needs its own target; the
-# globs have to happen when the target runs, hence the script-mode helper.
+# write into `test_files/` is outside the build tree and needs its own target,
+# the globs have to happen when the target runs, hence the script-mode helper
 #
 
 add_custom_target(clean-outputs
@@ -291,7 +269,7 @@ add_custom_target(clean-outputs
 )
 
 #
-# Configuration summary
+# configuration summary
 #
 
 message(STATUS "AIOLOS: problem      problems/${PROBLEM}.cpp")

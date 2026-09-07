@@ -1,17 +1,16 @@
 {
-    "version": 3,
+    "version": 8,
     "cmakeMinimumRequired":
     {
         "major": 3,
-        "minor": 21,
+        "minor": 28,
         "patch": 0
     },
     "configurePresets":
     [
         {
             "name": "default",
-            "displayName": "Default",
-            "description": "Default configuration with all the options set to their default values",
+            "hidden": true,
             "binaryDir": "${sourceDir}/build/${presetName}",
             "installDir": "${sourceDir}/install/${presetName}",
             "generator": "Ninja",
@@ -44,15 +43,15 @@
             }
         },
         {
-            "name": "windows-msvc143",
+            "name": "windows-x64-msvc145",
             "inherits": "vcpkg-default-triplet",
-            "displayName": "Windows | MSVC 143 (VS 2022) | vcpkg",
+            "displayName": "Windows | x64 | MSVC 145 (VS 2026) | vcpkg",
             "cacheVariables":
             {
                 "VCPKG_TARGET_TRIPLET":
                 {
                     "type": "STRING",
-                    "value": "x64-windows-static-md-v143"
+                    "value": "x64-windows-static-md-v145"
                 }
             }
         },
@@ -109,18 +108,13 @@
     "buildPresets":
     [
         {
-            "name": "default",
-            "configurePreset": "default",
-            "targets": "install"
-        },
-        {
             "name": "vcpkg-default-triplet",
             "configurePreset": "vcpkg-default-triplet",
             "targets": "install"
         },
         {
-            "name": "windows-msvc143",
-            "configurePreset": "windows-msvc143",
+            "name": "windows-x64-msvc145",
+            "configurePreset": "windows-x64-msvc145",
             "targets": "install"
         },
         {
@@ -137,6 +131,49 @@
             "name": "linux-arm64",
             "configurePreset": "linux-arm64",
             "targets": "install"
+        }
+    ],
+    "testPresets":
+    [
+        {
+            "name": "vcpkg-default-triplet",
+            "configurePreset": "vcpkg-default-triplet",
+            "output":
+            {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "windows-x64-msvc145",
+            "configurePreset": "windows-x64-msvc145",
+            "output":
+            {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "macos-arm64",
+            "configurePreset": "macos-arm64",
+            "output":
+            {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "linux-x64",
+            "configurePreset": "linux-x64",
+            "output":
+            {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "linux-arm64",
+            "configurePreset": "linux-arm64",
+            "output":
+            {
+                "outputOnFailure": true
+            }
         }
     ]
 }
