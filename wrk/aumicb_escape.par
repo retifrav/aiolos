@@ -1,0 +1,160 @@
+#
+# AIOLOS parameter file -- AU Mic b, XUV-driven atmospheric escape
+# Do not use tabs, only white spaces as value separators
+#
+# NOTE ON THESE COMMENTS: read_parameter_from_file (io.cpp:596) scans the whole
+# file with a plain substring test, so a key name appearing anywhere -- even
+# inside a comment -- counts as a second definition and aborts the run with
+# exit 5. Key names are therefore written below in lowercase, matching the C++
+# variable names rather than the uppercase keys; that is safe because the
+# substring test is case-sensitive.
+#
+# ADOPTED SYSTEM PARAMETERS
+#   Star  AU Mic (M1Ve, 22 +/- 3 Myr)
+#     M* = 0.50 +/- 0.03 Msun      Plavchan et al. 2020
+#     R* = 0.75 +/- 0.03 Rsun      White et al. 2019      (see r_star note below)
+#     Lbol = 0.09 Lsun             Plavchan et al. 2009
+#     Teff = 3650 K                derived from Lbol and R*
+#   Planet  AU Mic b
+#     Mp = 9.0 +/- 2.7 Mearth      Mallorquin et al. 2024, A&A 689, A132
+#     Rp = 4.79 +/- 0.29 Rearth    Mallorquin et al. 2024  -> 3.0517e9 cm
+#     a  = 0.0644 au               Gilbert et al. 2022
+#   XUV irradiation
+#     F_XUV(a) = 2.99e4 erg/s/cm2  quiescent, Rockcliffe et al. 2023
+#     -> L_XUV = F * 4 pi a^2 = 3.5e29 erg/s, the uv_star value below.
+#     Chadney et al. 2015 split this as L_X = 2.51e29 and L_EUV = 5.75e28 erg/s;
+#     band 0 here spans 0.1-900 A and so covers both. Splitting them needs a
+#     third band with an upper edge below 0.0161 micron, which is what
+#     x_star then feeds (init_and_bounds.cpp:829-838).
+#
+# DERIVED SCALES -- where the grid, domain and base density come from
+#   g(Rp)   = G Mp / Rp^2                      = 385 cm/s^2
+#   H(Rp)   = k T / (m g), atomic H at 600 K   = 1.29e8 cm = 0.042 Rp
+#   lambda  = G Mp m / (k T Rp)                = 23.6   (Jeans parameter)
+#   R_Hill  = a (Mp / 3 M*)^(1/3)              = 2.52e10 cm = 8.3 Rp
+#   T_eq    = T* sqrt(R* / 2a), zero albedo    = 600 K
+#   Converged solution (verified, t_max = 1.01e6 s, 34287 steps, ~6 s runtime):
+#     sonic point at 3.92 Rp, Mach 2.31 at the outer edge, T from 600 K at the
+#     base through 1450 K at 1.6 Rp to 2860 K in the outer wind, and
+#     Mdot = 2.47e10 g/s constant to 0.3% from 1.6 Rp out to the boundary.
+#
+#   cells_per_decade 500 gives dr/r = 0.00461, i.e. dr = 1.41e7 cm at the base
+#   and dr/H = 0.11 -> 9.2 cells per scale height. This is the setting that
+#   decides whether the run works at all. Below about one cell per scale height
+#   the hydrostatic construction undershoots, drops onto the
+#   density_floor * (r/r1)^-4 profile, and the rest of the grid free-falls --
+#   that floor profile is ~74x under-supported against gravity -- collapsing dt
+#   to ~1e-15 s. Here no cell is ever floored: the initial atmosphere stays
+#   several orders of magnitude above the floor across the whole domain.
+#
+#   The outer edge at 5.0e10 cm = 16.4 Rp = 2.0 R_Hill contains the sonic point
+#   (3.9 Rp), the Hill radius, and the whole XUV absorption region, and the flow
+#   leaves it supersonically, so the open outer boundary is non-reflecting.
+#
+DENSITY_FLOOR           1e-20
+PARI_TIME_TMAX          1.01e6
+CFL_BREAK_TIME          1e3
+PARI_TIME_OUTPUT        1e5
+PARI_TIME_DT            1e3
+PARI_CFLFACTOR          0.1
+PARI_DPHI_FACTOR        1.0
+ENERGY_EPSILON          0.01
+SPECIES_FILE            aumicb_h.spc
+XI_RAD 2.
+#
+# Control parameters
+# Problem numbers: shock_tube, no grav == 1; planet with grav == 2
+# Friction solver: analytic == 0, numerical == 1
+# Collision model: constant == C, physical == P
+#
+PARI_PROBLEM_NUMBER     2
+PARI_NUM_SPECIES        1
+PARI_NUM_BANDS          2
+NUM_BANDS_OUT           1
+DO_HYDRO                1
+INIT_TEMPERATURE_MODEL  C
+PARI_CONST_TEMP         600.
+
+FRICTION_SOLVER         1
+PARI_COLL_MODEL         P
+PARI_ALPHA_COLL         1.
+PARI_ORDER              2
+PARI_USE_RADIATION      2
+PARI_OPACITY_MODEL      C
+PRESSURE_BROADENING     0.
+CONSTOPA_SOLAR_FACTOR   0.35
+PARI_CONST_OPAC         1.e0
+
+PARI_SELF_GRAV_SWITCH   0
+PARI_LINEAR_GRAV        0
+PARI_INIT_STATIC        1
+USE_TIDES               1
+
+# Needed once the photosphere band is switched off (see r_star below): with no
+# thermal source the radiation solver can otherwise drive T negative in the
+# outermost cells. 600 K = T_eq is the natural floor.
+TEMPERATURE_FLOOR       600.
+
+# Physical parameters.
+# The base density anchor is the one genuinely free parameter here. 1e-11 puts
+# the lower boundary at rho = 7.6e-12 g/cm3, i.e. P = 0.38 microbar, a
+# thermosphere base rather than a deep envelope. It was chosen by scanning:
+# over 1e-10 .. 1e-12 the converged Mdot moves only from 3.7e10 to 1.2e10 g/s,
+# so the solution is XUV-energy-limited and essentially independent of this
+# value -- which is the point. At 1e-13 the radiation solver fails with negative
+# J; at 1e-5 (the value the shipped mdot-vs-euv .par uses, a 0.44 bar base) the
+# wind stops being XUV-driven entirely and reaches 1.5e14 g/s, which is 99x more
+# power than the intercepted XUV and would strip 18 Mearth in 22 Myr.
+PARI_PLANET_MASS        9.0
+PARI_INIT_DATA_SWITCH   1
+PARI_INIT_DATA_U1       1e-11
+PARI_INIT_DATA_U2       1.0
+PARI_INIT_DATA_U3       1e-5
+
+# Stellar parameters.
+# The stellar mass must be set explicitly: star_mass defaults to 1.0 Msun
+# (init_and_bounds.cpp:74) and use_tides 1 uses it, so omitting it would put
+# AU Mic b in a 1.3x too large Hill radius.
+#
+# r_star is deliberately ~0 rather than the real 0.75 Rsun. The photosphere band
+# (band 1) is fed by sigma T*^4 (R*/a)^2 and, under opacity model C, absorbs with
+# constopa_solar_factor times the band average of the species opacity file. For
+# highenergy3.opa that average over 9e-2..1e12 micron is 294 cm2/g, a meaningless
+# infrared opacity for atomic H, so the full bolometric flux (2.95e7 erg/s/cm2,
+# a thousand times the XUV) gets deposited in the thermosphere -- double counting
+# the irradiation that already sets T_eq = 600 K at the base. With the real R*
+# that spurious heating, not the XUV, drives the wind. Setting r_star to 1e-10
+# zeroes the band, as the c2ray/*.par setups also do. The consequence is that
+# this model has no photospheric heating at all, which is correct for a
+# thermosphere whose base temperature is imposed.
+PARI_MSTAR              0.50
+PARI_RSTAR              1e-10
+PARI_TSTAR              3650.
+PARI_UVSTAR             3.5e29
+PARI_PLANET_DIST        0.0644
+
+# Radiation parameters. Band 0 = 1e-8..9e-2 micron (0.1-900 A), the XUV band
+# that uv_star feeds; band 1 = 9e-2..1e12 micron, the photosphere band switched
+# off above.
+PARI_LAM_MIN            9.0e-2
+PARI_LAM_MAX            9.0e-2
+PARI_LAM_PER_DECADE     0.1
+
+# Numerical parameters.
+# Boundaries: left 2 = reflecting, right 1 = open (outflow). Only boundary_left
+# and boundary_right are read (init_and_bounds.cpp:1097-1098); the bare prefix
+# key that the shipped .par files also carry is never looked up, so it is
+# omitted here.
+PARI_BOUND_TYPE_LEFT    2
+PARI_BOUND_TYPE_RIGHT   1
+PARI_DOMAIN_DX          1e-3
+PARI_GRID_TYPE          1
+PARI_GEOMETRY           2
+PARI_CELLS_PER_DECADE   500
+PARI_DOMAIN_MIN         3.0517e9
+PARI_DOMAIN_MAX         5.0e10
+
+# Scenarios. init_wind 1 is retained for compatibility with the shipped setups
+# but is inert here, because the species file sets its density excess to 0.
+PARI_INIT_WIND          1
+REVERSE_HYDROSTAT_CONSTRUCTION 1

@@ -1,5 +1,8 @@
-build/
-install/
+/build/
+/install/
+
+# /wrk/ itself is not ignored for better visibility of the new/modified input files
+/wrk/results-*/
 
 .vscode/
 
